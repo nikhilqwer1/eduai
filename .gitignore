@@ -1,0 +1,5 @@
+.env
+__pycache__/
+generated_audio/
+generated_videos/
+student_portal.db
