@@ -10,23 +10,23 @@ import streamlit as st
 load_dotenv(override=True)
 
 # ============================================================
-# PYDANTIC STRUCTURED SCHEMAS FOR STRUCTURED CURRICULUM
+# PYDANTIC STRUCTURED SCHEMAS
 # ============================================================
 
 class Scene(BaseModel):
     scene_id: int
     title: str = Field(description="Subtopic heading with logical flow")
-    avatar_speech: str = Field(description="Exhaustive, rigorous, engaging explanation with analogies and intuition")
+    avatar_speech: str = Field(description="Exhaustive explanation with analogies and intuition")
     visual_type: Literal["bullet_points", "code", "formula", "diagram_description"]
-    visual_content: str = Field(description="Complete working code, mathematical derivation, or deep architecture notes")
+    visual_content: str = Field(description="Working code, formula or markdown notes")
 
 class Checkpoint(BaseModel):
     checkpoint_id: int
     trigger_after_scene_id: int
-    question: str = Field(description="Deep conceptual question testing reasoning, not memory")
+    question: str = Field(description="Deep conceptual question")
     options: List[str]
     correct_answer: str
-    explanation_on_fail: str = Field(description="Intuitive real-life mental model explaining why the mistake happened")
+    explanation_on_fail: str = Field(description="Why the mistake happened")
 
 class LessonPlan(BaseModel):
     lesson_title: str
@@ -43,71 +43,54 @@ class DiagnosticReport(BaseModel):
     suggested_next_topic: str
 
 # ============================================================
-# CLIENT INITIALIZATION (STREAMLIT SECRETS + ENV FALLBACK)
+# CLIENT INITIALIZATION (STREAMLIT SECRETS + FALLBACK)
 # ============================================================
 
 def get_gemini_client():
     api_key = None
     
-    # 1. Streamlit Cloud Secrets check
+    # Check Streamlit Cloud Secrets
     try:
-        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-            api_key = st.secrets["GEMINI_API_KEY"]
-        elif hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
-            api_key = st.secrets["GOOGLE_API_KEY"]
+        if hasattr(st, "secrets"):
+            if "GEMINI_API_KEY" in st.secrets:
+                api_key = str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+            elif "GOOGLE_API_KEY" in st.secrets:
+                api_key = str(st.secrets["GOOGLE_API_KEY"]).strip().strip('"').strip("'")
     except Exception:
         pass
 
-    # 2. Local .env or OS Environment fallback
+    # Check environment variable
     if not api_key:
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "AQ.Ab8RN6J3EHrvghxmztAwO0XDTf2vaMrHczxOQB2ZcS5vZ1Xb4Q"
 
     return genai.Client(api_key=api_key)
 
 # ============================================================
-# DEEP PEDAGOGICAL LESSON GENERATION
+# LESSON GENERATION
 # ============================================================
 
 def generate_structured_lesson(topic: str, context: str, level: str, time_mins: int, language: str) -> LessonPlan:
     client = get_gemini_client()
 
     prompt = f"""You are an elite professor and expert instructor.
-Deliver an IN-DEPTH, RIGOROUS, AND CRYSTAL-CLEAR masterclass on the topic: "{topic}".
+Deliver an in-depth masterclass on: "{topic}".
 
-PEDAGOGICAL INSTRUCTIONS:
-1. Deep Technical Rigor:
-   - Do NOT give generic or shallow summaries. Explain the underlying "WHY" from first principles.
-   - For algorithmic/CS topics: Show full code logic, step-by-step memory mutations, pointers, time/space complexity analysis.
-   - For mathematical topics: Show formal formula derivations step-by-step using clean LaTeX notation.
-   
-2. Structured Scenes Breakdown:
-   - Scene 1: First Principles Motivation & Intuitive Metaphor (Why does this exist? What problem does it solve?).
-   - Scene 2: Core Architecture & Mathematical Foundations (Underlying equations or mechanical invariants).
-   - Scene 3: Practical Implementation (Fully working code snippet or rigorous mathematical proof).
-   - Scene 4: Edge Cases, Invariant Failures & Optimization Trade-offs.
-   - Scene 5: Real-World Industry Application & Best Practices.
+REQUIREMENTS:
+1. Explain from first principles with clarity and deep mechanics.
+2. Provide 3 to 5 clear sequential scenes.
+3. For code: Write valid code in visual_content.
+4. Language: Teach in {language}.
+   - If Hinglish: Hindi sentence structure with English technical keywords.
+   - If Hindi: Clear educational Hindi.
+   - If English: Clear academic English.
 
-3. Blackboard Content Formatting:
-   - If visual_type is 'code': Provide clean, syntactically correct Python code with explanatory comments.
-   - If visual_type is 'formula': Output valid LaTeX mathematical expressions.
-   - If visual_type is 'bullet_points': Output concise, high-contrast engineering notes.
-
-4. Language Delivery:
-   - Target Language: {language}.
-   - If Hinglish: Natural conversational Hindi grammar mixed with standard English tech terms (e.g. array, memory, pointer, buffer, condition).
-   - If Hindi: Formal, high-clarity educational Hindi.
-   - If English: Authoritative pedagogical English.
-   - If Regional (Bengali, Tamil, Telugu, Marathi, etc.): Explain strictly and naturally in that language.
-
-Student Proficiency Level: {level}
-Target Session Duration: {time_mins} minutes
-
-Reference Material (RAG Context):
-{context if context else 'Rely on authoritative foundational domain knowledge.'}
+Level: {level}
+Duration: {time_mins} mins
+Context: {context if context else 'Authoritative technical foundations.'}
 """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -118,20 +101,19 @@ Reference Material (RAG Context):
     return LessonPlan(**json.loads(response.text))
 
 # ============================================================
-# DIAGNOSTIC PERFORMANCE REPORT
+# DIAGNOSTIC REPORT
 # ============================================================
 
 def generate_diagnostic_report(topic: str, answers_summary: str) -> DiagnosticReport:
     client = get_gemini_client()
-    prompt = f"""You are conducting a pedagogical diagnostic evaluation on a student.
-Topic Evaluated: {topic}
-Checkpoint Performance Data:
+    prompt = f"""Conduct a diagnostic performance evaluation:
+Topic: {topic}
+Performance Data:
 {answers_summary}
-
-Analyze the exact root-cause misconceptions, list mastered competencies vs weak areas, and generate an actionable revision roadmap."""
+"""
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
