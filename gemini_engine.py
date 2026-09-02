@@ -5,8 +5,13 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv(override=True)
+
+# ============================================================
+# PYDANTIC STRUCTURED SCHEMAS FOR STRUCTURED CURRICULUM
+# ============================================================
 
 class Scene(BaseModel):
     scene_id: int
@@ -37,44 +42,72 @@ class DiagnosticReport(BaseModel):
     recommended_revision_plan: str
     suggested_next_topic: str
 
+# ============================================================
+# CLIENT INITIALIZATION (STREAMLIT SECRETS + ENV FALLBACK)
+# ============================================================
+
 def get_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "AQ.Ab8RN6J3EHrvghxmztAwO0XDTf2vaMrHczxOQB2ZcS5vZ1Xb4Q"
+    api_key = None
+    
+    # 1. Streamlit Cloud Secrets check
+    try:
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            api_key = st.secrets["GEMINI_API_KEY"]
+        elif hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
+            api_key = st.secrets["GOOGLE_API_KEY"]
+    except Exception:
+        pass
+
+    # 2. Local .env or OS Environment fallback
+    if not api_key:
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "AQ.Ab8RN6J3EHrvghxmztAwO0XDTf2vaMrHczxOQB2ZcS5vZ1Xb4Q"
+
     return genai.Client(api_key=api_key)
+
+# ============================================================
+# DEEP PEDAGOGICAL LESSON GENERATION
+# ============================================================
 
 def generate_structured_lesson(topic: str, context: str, level: str, time_mins: int, language: str) -> LessonPlan:
     client = get_gemini_client()
 
-    prompt = f"""You are a world-class university professor and technical expert.
-Your mission is to deliver an IN-DEPTH, RIGOROUS, AND CRYSTAL-CLEAR masterclass on: "{topic}".
+    prompt = f"""You are an elite professor and expert instructor.
+Deliver an IN-DEPTH, RIGOROUS, AND CRYSTAL-CLEAR masterclass on the topic: "{topic}".
 
-PEDAGOGICAL REQUIREMENTS:
-1. Deep Fundamentals: Do not give shallow summaries. Explain the "WHY" behind every mechanism from first principles.
-2. Step-by-Step Flow: Divide the masterclass into 4 to 6 sequential scenes:
-   - Scene 1: Intuition, Motivation & Real-world Analogy (Why does this exist?).
-   - Scene 2: Architectural/Mathematical Foundations (Underlying equations or logic).
-   - Scene 3: Practical Mechanics & Implementation (Step-by-step trace or production code).
-   - Scene 4: Edge Cases, Time/Space Complexity & Optimization Trade-offs.
-   - Scene 5: Common Pitfalls & Real-world Industry Applications.
-3. Chalkboard Visuals:
-   - Use clean LaTeX for mathematical equations.
-   - Write complete, syntactically valid code blocks for programming topics.
-   - Use structured bullet points for system flows.
-4. Language Requirement:
+PEDAGOGICAL INSTRUCTIONS:
+1. Deep Technical Rigor:
+   - Do NOT give generic or shallow summaries. Explain the underlying "WHY" from first principles.
+   - For algorithmic/CS topics: Show full code logic, step-by-step memory mutations, pointers, time/space complexity analysis.
+   - For mathematical topics: Show formal formula derivations step-by-step using clean LaTeX notation.
+   
+2. Structured Scenes Breakdown:
+   - Scene 1: First Principles Motivation & Intuitive Metaphor (Why does this exist? What problem does it solve?).
+   - Scene 2: Core Architecture & Mathematical Foundations (Underlying equations or mechanical invariants).
+   - Scene 3: Practical Implementation (Fully working code snippet or rigorous mathematical proof).
+   - Scene 4: Edge Cases, Invariant Failures & Optimization Trade-offs.
+   - Scene 5: Real-World Industry Application & Best Practices.
+
+3. Blackboard Content Formatting:
+   - If visual_type is 'code': Provide clean, syntactically correct Python code with explanatory comments.
+   - If visual_type is 'formula': Output valid LaTeX mathematical expressions.
+   - If visual_type is 'bullet_points': Output concise, high-contrast engineering notes.
+
+4. Language Delivery:
    - Target Language: {language}.
-   - If Hindi: Pure, formal yet simple educational Hindi.
-   - If Hinglish: Natural conversational tech dialect (Hindi grammar structure using standard technical terms like 'function', 'memory', 'pointer', 'complexity').
-   - If English: Clean, authoritative pedagogical English.
-   - If any regional language (Bengali, Tamil, etc.): Strictly teach in that regional dialect.
+   - If Hinglish: Natural conversational Hindi grammar mixed with standard English tech terms (e.g. array, memory, pointer, buffer, condition).
+   - If Hindi: Formal, high-clarity educational Hindi.
+   - If English: Authoritative pedagogical English.
+   - If Regional (Bengali, Tamil, Telugu, Marathi, etc.): Explain strictly and naturally in that language.
 
-Learner Level: {level}
-Target Duration: {time_mins} minutes
+Student Proficiency Level: {level}
+Target Session Duration: {time_mins} minutes
 
 Reference Material (RAG Context):
-{context if context else 'Rely on comprehensive domain authority.'}
+{context if context else 'Rely on authoritative foundational domain knowledge.'}
 """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -84,17 +117,21 @@ Reference Material (RAG Context):
     )
     return LessonPlan(**json.loads(response.text))
 
+# ============================================================
+# DIAGNOSTIC PERFORMANCE REPORT
+# ============================================================
+
 def generate_diagnostic_report(topic: str, answers_summary: str) -> DiagnosticReport:
     client = get_gemini_client()
-    prompt = f"""Conduct a diagnostic post-mortem on the student's answers:
-Topic: {topic}
-Performance Data:
+    prompt = f"""You are conducting a pedagogical diagnostic evaluation on a student.
+Topic Evaluated: {topic}
+Checkpoint Performance Data:
 {answers_summary}
 
-Highlight exact root-cause misconceptions and provide a targeted remedial plan."""
+Analyze the exact root-cause misconceptions, list mastered competencies vs weak areas, and generate an actionable revision roadmap."""
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
