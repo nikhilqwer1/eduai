@@ -2,26 +2,30 @@ import os
 import json
 from typing import List, Literal
 from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv(override=True)
+
+# ============================================================
+# PYDANTIC STRUCTURED SCHEMAS
+# ============================================================
 
 class Scene(BaseModel):
     scene_id: int
     title: str = Field(description="Subtopic heading with logical flow")
-    avatar_speech: str = Field(description="Exhaustive, rigorous, engaging explanation with analogies and intuition")
+    avatar_speech: str = Field(description="Exhaustive explanation with analogies and intuition")
     visual_type: Literal["bullet_points", "code", "formula", "diagram_description"]
-    visual_content: str = Field(description="Complete working code, mathematical derivation, or deep architecture notes")
+    visual_content: str = Field(description="Working code, formula or markdown notes")
 
 class Checkpoint(BaseModel):
     checkpoint_id: int
     trigger_after_scene_id: int
-    question: str = Field(description="Deep conceptual question testing reasoning, not memory")
+    question: str = Field(description="Deep conceptual question")
     options: List[str]
     correct_answer: str
-    explanation_on_fail: str = Field(description="Intuitive real-life mental model explaining why the mistake happened")
+    explanation_on_fail: str = Field(description="Why the mistake happened")
 
 class LessonPlan(BaseModel):
     lesson_title: str
@@ -37,69 +41,111 @@ class DiagnosticReport(BaseModel):
     recommended_revision_plan: str
     suggested_next_topic: str
 
-def get_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") 
-    return genai.Client(api_key=api_key)
+# ============================================================
+# API KEY RESOLUTION & CONFIGURATION
+# ============================================================
+
+def setup_gemini():
+    api_key = None
+    try:
+        if hasattr(st, "secrets"):
+            if "GEMINI_API_KEY" in st.secrets:
+                api_key = str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+            elif "GOOGLE_API_KEY" in st.secrets:
+                api_key = str(st.secrets["GOOGLE_API_KEY"]).strip().strip('"').strip("'")
+    except Exception:
+        pass
+
+    if not api_key:
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    if not api_key:
+        raise ValueError("API Key missing! Please set GEMINI_API_KEY in Streamlit Secrets.")
+
+    genai.configure(api_key=api_key)
+
+# ============================================================
+# LESSON GENERATION
+# ============================================================
 
 def generate_structured_lesson(topic: str, context: str, level: str, time_mins: int, language: str) -> LessonPlan:
-    client = get_gemini_client()
+    setup_gemini()
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
-    prompt = f"""You are a world-class university professor and technical expert.
-Your mission is to deliver an IN-DEPTH, RIGOROUS, AND CRYSTAL-CLEAR masterclass on: "{topic}".
+    schema_instruction = """
+    Return ONLY a valid JSON object matching this exact structure:
+    {
+        "lesson_title": "string",
+        "target_level": "string",
+        "language": "string",
+        "scenes": [
+            {
+                "scene_id": 1,
+                "title": "string",
+                "avatar_speech": "string",
+                "visual_type": "code",
+                "visual_content": "string"
+            }
+        ],
+        "checkpoints": [
+            {
+                "checkpoint_id": 1,
+                "trigger_after_scene_id": 1,
+                "question": "string",
+                "options": ["opt1", "opt2", "opt3"],
+                "correct_answer": "opt1",
+                "explanation_on_fail": "string"
+            }
+        ]
+    }
+    """
 
-PEDAGOGICAL REQUIREMENTS:
-1. Deep Fundamentals: Do not give shallow summaries. Explain the "WHY" behind every mechanism from first principles.
-2. Step-by-Step Flow: Divide the masterclass into 4 to 6 sequential scenes:
-   - Scene 1: Intuition, Motivation & Real-world Analogy (Why does this exist?).
-   - Scene 2: Architectural/Mathematical Foundations (Underlying equations or logic).
-   - Scene 3: Practical Mechanics & Implementation (Step-by-step trace or production code).
-   - Scene 4: Edge Cases, Time/Space Complexity & Optimization Trade-offs.
-   - Scene 5: Common Pitfalls & Real-world Industry Applications.
-3. Chalkboard Visuals:
-   - Use clean LaTeX for mathematical equations.
-   - Write complete, syntactically valid code blocks for programming topics.
-   - Use structured bullet points for system flows.
-4. Language Requirement:
-   - Target Language: {language}.
-   - If Hindi: Pure, formal yet simple educational Hindi.
-   - If Hinglish: Natural conversational tech dialect (Hindi grammar structure using standard technical terms like 'function', 'memory', 'pointer', 'complexity').
-   - If English: Clean, authoritative pedagogical English.
-   - If any regional language (Bengali, Tamil, etc.): Strictly teach in that regional dialect.
+    prompt = f"""You are an elite master teacher.
+Create a comprehensive masterclass for topic: "{topic}".
 
-Learner Level: {level}
-Target Duration: {time_mins} minutes
+Level: {level}
+Duration: {time_mins} minutes
+Target Language: {language}
+Reference Context: {context if context else 'Core technical foundations.'}
 
-Reference Material (RAG Context):
-{context if context else 'Rely on comprehensive domain authority.'}
+Provide 3 to 5 scenes with practical code or formulas.
+{schema_instruction}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=LessonPlan,
-            temperature=0.2,
-        ),
+    response = model.generate_content(
+        prompt,
+        generation_config={"response_mime_type": "application/json"}
     )
-    return LessonPlan(**json.loads(response.text))
+    data = json.loads(response.text)
+    return LessonPlan(**data)
+
+# ============================================================
+# DIAGNOSTIC REPORT GENERATION
+# ============================================================
 
 def generate_diagnostic_report(topic: str, answers_summary: str) -> DiagnosticReport:
-    client = get_gemini_client()
-    prompt = f"""Conduct a diagnostic post-mortem on the student's answers:
-Topic: {topic}
-Performance Data:
-{answers_summary}
+    setup_gemini()
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
-Highlight exact root-cause misconceptions and provide a targeted remedial plan."""
+    schema_instruction = """
+    Return ONLY a valid JSON object matching this structure:
+    {
+        "score_percentage": 85.0,
+        "mastered_concepts": ["concept 1", "concept 2"],
+        "weak_concepts": ["weak area 1"],
+        "recommended_revision_plan": "string",
+        "suggested_next_topic": "string"
+    }
+    """
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=DiagnosticReport,
-            temperature=0.1,
-        ),
+    prompt = f"""Generate a diagnostic performance evaluation for topic: {topic}.
+Data: {answers_summary}
+{schema_instruction}
+"""
+
+    response = model.generate_content(
+        prompt,
+        generation_config={"response_mime_type": "application/json"}
     )
-    return DiagnosticReport(**json.loads(response.text))
+    data = json.loads(response.text)
+    return DiagnosticReport(**data)
